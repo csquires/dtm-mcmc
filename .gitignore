@@ -2,3 +2,5 @@
 .idea/
 .DS_Store
 fetch_data/
+*.pyc
+*/__pycache__/

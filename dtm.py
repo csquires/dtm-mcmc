@@ -1,80 +1,112 @@
 import numpy as np
 from utils import math_utils
-from sklearn.utils.extmath import softmax
-
-V = 1000  # vocab size
-
-SIGMA = 1
-PSI = 1
-BETA = 1
-EPS_A = 10
-EPS_B = 1
-EPS_C = 1.5
 
 
 class DynamicTopicModel:
-    def __init__(self, corpus, K):
+    def __init__(self, corpus, K, V):
+        """
+
+        :param corpus: pre-tokenized list of timeslices, each being a list of documents
+        :param K: number of topics
+        :param V: vocabulary size
+        """
+        self.corpus = corpus
+
         T = len(corpus)
         D = [len(timeslice) for timeslice in corpus]
         N = [[len(doc) for doc in timeslice] for timeslice in corpus]
+
+        # sizes
+        self.K = K
+        self.V = V
         self.T = T
         self.D = D
         self.N = N
-        self.K = K
-        self.corpus = corpus
+
+        # parameters
         self.alpha = np.zeros([T, K])  # overall topic mixture at time t
         self.eta = [np.zeros([D[t], K]) for t in range(T)]  # d-th document topic mixture at time t
         self.psi = np.zeros([T, K, V])  # k-th topic at time t (as mixture of V words)
-        self.z = [np.zeros(N[t][d]) for t in range(T) for d in range(D[t])]
-        self.topic_count_by_doc = [np.zeros(K, dtype=int) for t in range(T) for d in range(D[t])]
+        self.z = [[np.zeros(N[t][d], dtype=int) for d in range(D[t])] for t in range(T)]
+
+        # count matrices
+        self.topic_count_by_doc = [np.zeros([D[t], K], dtype=int) for t in range(T)]
         self.topic_count_by_time = np.zeros([T, K], dtype=int)
         self.topic_count_by_word = np.zeros([T, K, V], dtype=int)
-        self.nsamples_alias = np.zeros([T, V], dtype=int)
+
+        # hyperparameters
         self.BURN_IN = 100
-        self.WAIT = 10
-        self.alias_tables = [None for t in range(T) for w in range(V)]
-        self.prob_tables = [None for t in range(T) for w in range(V)]
+        self.THIN_RATE = 10
+        self.ALPHA_VAR = 1  # SIGMA in paper
+        self.ETA_VAR = 1  # PSI in paper
+        self.PSI_VAR = 1  # BETA in paper
+        self.EPS_A = 10  # step-size
+        self.EPS_B = 1  # step-size
+        self.EPS_C = 1.5  # step-size
+
+        # alias tables
+        self.nsamples_alias = np.zeros([T, V], dtype=int)
+        self.alias_tables = [[None for w in range(V)] for t in range(T)]
+        self.prob_tables = [[None for w in range(V)] for t in range(T)]
 
     def initialize(self):
         pass
 
     def sample(self, n_samples, verbose=False):
         samples = []
-        for i in range(self.BURN_IN + self.WAIT * n_samples):
+        for i in range(self.BURN_IN + self.THIN_RATE * n_samples):
             if verbose:
                 print('Iteration %d' % i)
             alpha, eta, psi, z = self.gibbs_iter(i)
-            if i > self.BURN_IN and (i - self.BURN_IN) % self.WAIT == 0:
+            if i > self.BURN_IN and (i - self.BURN_IN) % self.THIN_RATE == 0:
                 samples.append({
                     'alpha': alpha,
                     'eta': eta,
                     'psi': psi,
                     'z': z
                 })
+        return samples
 
     def update_alias(self, t, w):
-        alias_table, prob_table = math_utils.get_alias_table(softmax(self.psi[t, :, w]))
+        prob_table, alias_table = math_utils.get_alias_table(math_utils.softmax_(self.psi[t, :, w]))
         self.alias_tables[t][w] = alias_table
         self.prob_tables[t][w] = prob_table
 
     def sample_alias(self, t, w):
+        if self.alias_tables[t][w] is None:
+            self.update_alias(t, w)
         alias_table = self.alias_tables[t][w]
         prob_table = self.prob_tables[t][w]
+        self.nsamples_alias[t][w] += 1
+        if self.nsamples_alias[t][w] == self.K:
+            self.alias_tables[t][w] = None
         return math_utils.sample_alias_table(alias_table, prob_table)
 
     def gibbs_iter(self, i):
+        # sizes
+        K = self.K
         T = self.T
         D = self.D
         N = self.N
-        K = self.K
+
+        # hyperparameters
+        ALPHA_VAR = self.ALPHA_VAR
+        ETA_VAR = self.ETA_VAR
+        PSI_VAR = self.PSI_VAR
+        EPS_A = self.EPS_A
+        EPS_B = self.EPS_B
+        EPS_C = self.EPS_C
+
+        # parameters
         alpha = self.alpha
         eta = self.eta
         psi = self.psi
         z = self.z
+
+        # count matrices
         topic_count_by_doc = self.topic_count_by_doc
         topic_count_by_word = self.topic_count_by_word
         topic_count_by_time = self.topic_count_by_time
-        nsamples_alias = self.nsamples_alias
 
         eps = EPS_A * (EPS_B + i) ** EPS_C
         xi = np.random.normal(0, eps ** 2, K)
@@ -83,45 +115,45 @@ class DynamicTopicModel:
         old_alpha = alpha.copy()
         for t in range(T):
             eta_mean = eta[t].mean(axis=0)  # in R^K
-            eta_mean_var = (eta_mean, PSI ** 2 / D[t])
+            eta_mean_var = (eta_mean, ETA_VAR ** 2 / D[t])
             if t == 0:
                 alpha_mean, alpha_cov = math_utils.complete_square([
-                    (old_alpha[t + 1], SIGMA ** 2),
+                    (old_alpha[t + 1], ALPHA_VAR ** 2),
                     eta_mean_var
                 ])
-            elif t == T:
+            elif t == T-1:
                 alpha_mean, alpha_cov = math_utils.complete_square([
-                    (old_alpha[t - 1], SIGMA ** 2),
+                    (old_alpha[t - 1], ALPHA_VAR ** 2),
                     eta_mean_var
                 ])
             else:
                 alpha_mean, alpha_cov = math_utils.complete_square([
-                    (old_alpha[t + 1], SIGMA ** 2),
-                    (old_alpha[t - 1], SIGMA ** 2),
+                    (old_alpha[t + 1], ALPHA_VAR ** 2),
+                    (old_alpha[t - 1], ALPHA_VAR ** 2),
                     eta_mean_var
                 ])
 
-            alpha[t] = np.random.normal(alpha_mean, alpha_cov)
+            alpha[t] = np.random.multivariate_normal(alpha_mean, alpha_cov)
 
         # Update eta: stochastic gradient langevin dynamics (SGLD)
         for t in range(T):
             for d in range(D[t]):
-                grad_eta = topic_count_by_doc[t][d] - N[t][d] * softmax(eta[t][d])
-                eta_prior_grad = -1 / PSI ** 2 * (eta[t][d] - alpha[t])
+                grad_eta = topic_count_by_doc[t][d] - N[t][d] * math_utils.softmax_(eta[t][d])
+                eta_prior_grad = -1 / ETA_VAR ** 2 * (eta[t][d] - alpha[t])
                 eta[t][d, :] += eps / 2. * (grad_eta + eta_prior_grad) + xi
 
         # Update psi: stochastic gradient langevin dynamics (SGLD)
         old_psi = psi.copy()
         for t in range(T):
             if t == 0:
-                psi_prior_grad = 1 / BETA ** 2 * (old_psi[t + 1] - old_psi[t])
-            elif t == T:
-                psi_prior_grad = 1 / BETA ** 2 * (old_psi[t - 1] - old_psi[t])
+                psi_prior_grad = 1 / PSI_VAR ** 2 * (old_psi[t + 1] - old_psi[t])
+            elif t == T-1:
+                psi_prior_grad = 1 / PSI_VAR ** 2 * (old_psi[t - 1] - old_psi[t])
             else:
-                psi_prior_grad = 1 / BETA ** 2 * (old_psi[t - 1] + old_psi[t + 1] - 2 * old_psi[t])
+                psi_prior_grad = 1 / PSI_VAR ** 2 * (old_psi[t - 1] + old_psi[t + 1] - 2 * old_psi[t])
 
-            grad_psi = topic_count_by_word[t] - np.multiply(topic_count_by_time[t], softmax(old_psi[t]))
-            psi[t] += eps / 2. * (grad_psi + psi_prior_grad) + xi
+            grad_psi = topic_count_by_word[t] - (topic_count_by_time[t][:, np.newaxis] * math_utils.softmax_(old_psi[t]))
+            psi[t] += eps / 2. * (grad_psi + psi_prior_grad) + xi[:, np.newaxis]
 
         # Update z: alias table for amortization
         for t in range(T):
@@ -135,15 +167,12 @@ class DynamicTopicModel:
                         topic_count_by_time[t, k] -= 1
                         if mh % 2 == 0:
                             # doc-proposal
-                            proposal = None
+                            # TODO: I'm still not convinced this is right
+                            proposal = z[t][d][np.random.randint(0, N[t][d])]
                             accept = np.exp(psi[t, proposal, w] - psi[t, k, w])
                         else:
                             # word-proposal
-                            if nsamples_alias[t, w] >= K:
-                                self.update_alias(t, w)
-                                self.nsamples_alias[t, w] = 0
                             proposal = self.sample_alias(t, w)
-                            self.nsamples_alias[t, w] += 1
                             accept = np.exp(eta[t][d, proposal] - eta[t][d, k])
                         accept = min(accept, 1)
                         new_k = proposal if math_utils.coin(accept) else k

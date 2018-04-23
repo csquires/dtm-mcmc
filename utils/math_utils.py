@@ -1,9 +1,13 @@
 import numpy as np
 from scipy.special import logsumexp
+from sklearn.utils.extmath import softmax
 
 
-def softmax(x):
-    return np.exp(x - logsumexp(x))
+def softmax_(x):
+    if x.ndim == 1:
+        return softmax(x.reshape(1, -1)).squeeze()
+    else:
+        return softmax(x)
 
 
 def coin(p):

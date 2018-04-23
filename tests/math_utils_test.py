@@ -13,10 +13,9 @@ def test_complete_square():
     print("mean correct:", mean == correct_mean)
 
 
-def test_alias_table():
-    ps = math_utils.softmax(np.random.random(size=10))
-    prob_table, alias_table = math_utils.get_alias_table(ps)
-    samples = math_utils.sample_alias_table(alias_table, prob_table, size=400000)
-    ps_emp = np.bincount(samples)/len(samples)
-    print(np.allclose(ps, ps_emp, atol=1e-2))
+ps = math_utils.softmax_(np.random.random(size=1000))
+prob_table, alias_table = math_utils.get_alias_table(ps)
+# samples = math_utils.sample_alias_table(alias_table, prob_table, size=400000)
+# ps_emp = np.bincount(samples)/len(samples)
+# print(np.allclose(ps, ps_emp, atol=1e-2))
 
