@@ -26,7 +26,7 @@ class DynamicTopicModel:
         # parameters
         self.alpha = np.zeros([T, K])  # overall topic mixture at time t
         self.eta = [np.zeros([D[t], K]) for t in range(T)]  # d-th document topic mixture at time t
-        self.psi = np.zeros([T, K, V])  # k-th topic at time t (as mixture of V words)
+        self.phi = np.zeros([T, K, V])  # k-th topic at time t (as mixture of V words)
         self.z = [[np.zeros(N[t][d], dtype=int) for d in range(D[t])] for t in range(T)]
 
         # count matrices
@@ -39,7 +39,7 @@ class DynamicTopicModel:
         self.THIN_RATE = 10
         self.ALPHA_VAR = 1  # SIGMA in paper
         self.ETA_VAR = 1  # PSI in paper
-        self.PSI_VAR = 1  # BETA in paper
+        self.PHI_VAR = 1  # BETA in paper
         self.EPS_A = 10  # step-size
         self.EPS_B = 1  # step-size
         self.EPS_C = 1.5  # step-size
@@ -49,26 +49,55 @@ class DynamicTopicModel:
         self.alias_tables = [[None for w in range(V)] for t in range(T)]
         self.prob_tables = [[None for w in range(V)] for t in range(T)]
 
-    def initialize(self):
-        pass
+    def check_counts(self):
+        total_num_words = sum(len(doc) for timeslice in self.corpus for doc in timeslice)
+        a = self.topic_count_by_time.sum() == total_num_words
+        print(a)
+
+    def initialize(self, verbose=False):
+        for t in range(self.T):
+            for d in range(self.D[t]):
+                for n in range(self.N[t][d]):
+                    w = self.corpus[t][d][n]
+                    k = np.random.randint(0, self.K)
+                    self.z[t][d][n] = k
+                    self.topic_count_by_doc[t][d, k] += 1
+                    self.topic_count_by_time[t, k] += 1
+                    self.topic_count_by_word[t, k, w] += 1
+                    self.eta[t][d, k] = None
+        if verbose:
+            print("Done initializing count matrices")
+
+        init_beta = 1
+        for t in range(self.T):
+            for w in range(self.V):
+                for k in range(self.K):
+                    num = self.topic_count_by_word[0, k, w] + init_beta
+                    denom = self.topic_count_by_time[0, k] + self.V * init_beta
+                    self.phi[t, k, w] = num / denom
+
+        if verbose:
+            print("Done initializing topic mixtures")
+
+        self.check_counts()
 
     def sample(self, n_samples, verbose=False):
         samples = []
         for i in range(self.BURN_IN + self.THIN_RATE * n_samples):
             if verbose:
                 print('Iteration %d' % i)
-            alpha, eta, psi, z = self.gibbs_iter(i)
+            alpha, eta, phi, z = self.gibbs_iter(i)
             if i > self.BURN_IN and (i - self.BURN_IN) % self.THIN_RATE == 0:
                 samples.append({
                     'alpha': alpha,
                     'eta': eta,
-                    'psi': psi,
+                    'phi': phi,
                     'z': z
                 })
         return samples
 
     def update_alias(self, t, w):
-        prob_table, alias_table = math_utils.get_alias_table(math_utils.softmax_(self.psi[t, :, w]))
+        prob_table, alias_table = math_utils.get_alias_table(math_utils.softmax_(self.phi[t, :, w]))
         self.alias_tables[t][w] = alias_table
         self.prob_tables[t][w] = prob_table
 
@@ -92,7 +121,7 @@ class DynamicTopicModel:
         # hyperparameters
         ALPHA_VAR = self.ALPHA_VAR
         ETA_VAR = self.ETA_VAR
-        PSI_VAR = self.PSI_VAR
+        PHI_VAR = self.PHI_VAR
         EPS_A = self.EPS_A
         EPS_B = self.EPS_B
         EPS_C = self.EPS_C
@@ -100,7 +129,7 @@ class DynamicTopicModel:
         # parameters
         alpha = self.alpha
         eta = self.eta
-        psi = self.psi
+        phi = self.phi
         z = self.z
 
         # count matrices
@@ -142,18 +171,18 @@ class DynamicTopicModel:
                 eta_prior_grad = -1 / ETA_VAR ** 2 * (eta[t][d] - alpha[t])
                 eta[t][d, :] += eps / 2. * (grad_eta + eta_prior_grad) + xi
 
-        # Update psi: stochastic gradient langevin dynamics (SGLD)
-        old_psi = psi.copy()
+        # Update phi: stochastic gradient langevin dynamics (SGLD)
+        old_phi = phi.copy()
         for t in range(T):
             if t == 0:
-                psi_prior_grad = 1 / PSI_VAR ** 2 * (old_psi[t + 1] - old_psi[t])
+                phi_prior_grad = 1 / PHI_VAR ** 2 * (old_phi[t + 1] - old_phi[t])
             elif t == T-1:
-                psi_prior_grad = 1 / PSI_VAR ** 2 * (old_psi[t - 1] - old_psi[t])
+                phi_prior_grad = 1 / PHI_VAR ** 2 * (old_phi[t - 1] - old_phi[t])
             else:
-                psi_prior_grad = 1 / PSI_VAR ** 2 * (old_psi[t - 1] + old_psi[t + 1] - 2 * old_psi[t])
+                phi_prior_grad = 1 / PHI_VAR ** 2 * (old_phi[t - 1] + old_phi[t + 1] - 2 * old_phi[t])
 
-            grad_psi = topic_count_by_word[t] - (topic_count_by_time[t][:, np.newaxis] * math_utils.softmax_(old_psi[t]))
-            psi[t] += eps / 2. * (grad_psi + psi_prior_grad) + xi[:, np.newaxis]
+            grad_phi = topic_count_by_word[t] - (topic_count_by_time[t][:, np.newaxis] * math_utils.softmax_(old_phi[t]))
+            phi[t] += eps / 2. * (grad_phi + phi_prior_grad) + xi[:, np.newaxis]
 
         # Update z: alias table for amortization
         for t in range(T):
@@ -169,7 +198,7 @@ class DynamicTopicModel:
                             # doc-proposal
                             # TODO: I'm still not convinced this is right
                             proposal = z[t][d][np.random.randint(0, N[t][d])]
-                            accept = np.exp(psi[t, proposal, w] - psi[t, k, w])
+                            accept = np.exp(phi[t, proposal, w] - phi[t, k, w])
                         else:
                             # word-proposal
                             proposal = self.sample_alias(t, w)
@@ -181,6 +210,6 @@ class DynamicTopicModel:
                         topic_count_by_word[t, new_k, w] += 1
                         topic_count_by_time[t, new_k] += 1
 
-        return alpha, eta, psi, z
+        return alpha, eta, phi, z
 
 
