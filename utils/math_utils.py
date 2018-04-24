@@ -24,7 +24,7 @@ def complete_square(normals):
     """
     cov = sum([1/n[1] for n in normals]) ** -1
     mean = cov * np.array([n[0]/n[1] for n in normals]).sum(axis=0)
-    return mean, cov * np.eye(len(normals[0][0]))
+    return mean, cov
 
 
 def get_alias_table(ps):

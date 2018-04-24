@@ -21,6 +21,7 @@ V = len(int2word)
 
 K = 10
 d = DynamicTopicModel(corpus_tokenized, K, V)
+d.BURN_IN = 10
 d.initialize(verbose=True)
-# d.sample(100)
+d.sample(100, verbose=True)
 
