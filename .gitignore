@@ -4,3 +4,4 @@
 fetch_data/
 *.pyc
 */__pycache__/
+/samples

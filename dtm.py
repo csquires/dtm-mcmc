@@ -36,7 +36,7 @@ class DynamicTopicModel:
 
         # hyperparameters
         self.BURN_IN = 100
-        self.THIN_RATE = 10
+        self.THIN_RATE = 20
         self.ALPHA_VAR = 1  # SIGMA in paper
         self.ETA_VAR = 1  # PSI in paper
         self.PHI_VAR = 10  # BETA in paper
