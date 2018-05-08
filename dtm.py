@@ -1,5 +1,31 @@
 import numpy as np
 from utils import math_utils
+import pandas as pd
+import pickle
+import time
+
+
+def get_ll(etas, phis, ws):
+    T, K, V = phis.shape
+    ll = 0
+
+    softmax_etas = [math_utils.softmax_(eta) for eta in etas]
+    # softmax_phis = math_utils.softmax_(phis)
+    softmax_phis2 = np.zeros(phis.shape)
+    for t in range(T):
+        for k in range(K):
+            softmax_phis2[t, k] = math_utils.softmax_(phis[t, k])
+    # print(np.allclose(softmax_phis, softmax_phis2))
+
+    for t in range(T):
+        for d in range(len(ws[t])):
+            for w in ws[t][d]:
+                l = 0
+                for k in range(K):
+                    l += softmax_etas[t][d, k] * softmax_phis2[t, k, w]
+                ll += np.log(l)
+
+    return ll
 
 
 class DynamicTopicModel:
@@ -57,6 +83,9 @@ class DynamicTopicModel:
         if not (a and b and c):
             raise Exception("Programming error: count matrices are not consistent")
 
+    def get_ll(self):
+        return get_ll(self.eta, self.phi, self.corpus)
+
     def initialize(self, verbose=False):
         init_alpha = 50 / self.K
         for t in range(self.T):
@@ -88,21 +117,47 @@ class DynamicTopicModel:
         self.check_counts()
 
     def sample(self, n_samples, verbose=False):
-        samples = []
+        if verbose:
+            print('V = %d' % self.V)
+            print('K = %d' % self.K)
+            print('T = %d' % self.T)
+            print('mean D = %.2f' % np.mean(self.D))
+            Ntotal = sum(sum(self.N[t]) for t in range(self.T))
+            Nmean = Ntotal/np.sum(self.D)
+            print('mean N = %.2f' % Nmean)
+
+        self.samples = []
+        self.lls = []
+        start_time = time.time()
         for i in range(self.BURN_IN + self.THIN_RATE * n_samples):
             self.gibbs_iter(i)
             if verbose and i == self.BURN_IN:
+                last_time = time.time()
                 print('Burn-in complete')
             if i > self.BURN_IN and (i - self.BURN_IN) % self.THIN_RATE == 0:
+                ll = self.get_ll()
                 if verbose:
                     print('Iteration %d' % i)
-                samples.append({
+                    print('Log likelihood: %.3f' % ll)
+                    print('Total time elapsed: %.3f seconds' % (time.time() - start_time))
+                    print('Time for this sample: %.3f seconds' % (time.time() - last_time))
+                    last_time = time.time()
+                self.lls.append(ll)
+                self.samples.append({
                     'alpha': self.alpha,
                     'eta': self.eta,
                     'phi': self.phi,
                     'z': self.z
                 })
-        return samples
+        if verbose:
+            total_time = time.time() - start_time
+            print('==== Complete ====')
+            print('Total time: %.3f minutes' % (total_time/60))
+            print('Time per samples: %.3f seconds' % (total_time/n_samples))
+
+    def save(self, filename):
+        s = pd.DataFrame(self.samples, index=range(len(self.samples)), columns=['alpha', 'eta', 'phi', 'z'])
+        pickle.dump(s, open(filename, 'wb'))
 
     def update_alias(self, t, w):
         prob_table, alias_table = math_utils.get_alias_table(math_utils.softmax_(self.phi[t, :, w]))
@@ -181,7 +236,7 @@ class DynamicTopicModel:
                 grad_eta = topic_count_by_doc[t][d] - N[t][d] * math_utils.softmax_(eta[t][d])
                 eta_prior_grad = -1 / ETA_VAR * (eta[t][d] - alpha[t])
                 eta[t][d, :] += eps / 2. * (grad_eta + eta_prior_grad) + xi
-        if np.any(np.isinf(eta)):
+        if any([np.any(np.isinf(e)) for e in eta]):
             raise Exception("eta has an infinity")
 
         # Update phi: stochastic gradient langevin dynamics (SGLD)
