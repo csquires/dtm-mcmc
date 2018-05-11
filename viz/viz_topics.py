@@ -7,83 +7,117 @@ from palettable import colorbrewer
 from utils import strings, math_utils
 import itertools as itr
 
-plt.ion()
 
 FOLDER = 'results/trials2/'
-int2word = yaml.load(open(FOLDER + 'int2word.yaml'))
-samples = pickle.load(open(FOLDER + 'samples1.p', 'rb'))
-topics = strings.decode_topics(samples.iloc[-1], int2word)
-topic_props = np.apply_along_axis(math_utils.softmax_, 1, samples.ix[0]['alpha'])
-K = 10
-n_top = 10
 
 
-def plot_proportions(topic_props, times):
+def plot_proportions(alphas):
+    """
+    Given alpha (T, K), plot the overall popularity of each topic over time from left to right
+    """
+    T, K = alphas.shape
     colors = colorbrewer.get_map('Set3', map_type='qualitative', number=min(K, 12)).mpl_colors
     colors = list(itr.islice(itr.cycle(colors), K))
     W = .5
     H = 5
     PW = .2
-    TOTAL_W = len(times) * (W + PW)
+    TOTAL_W = T * (W + PW)
     plt.figure(figsize=(TOTAL_W, H))
     ax = plt.gca()
     plt.xlim(0, TOTAL_W)
     plt.ylim(0, H)
     plt.axis('off')
 
-    top_by_time = [np.cumsum(topic_props[t]) for t in times]
-    for t in times:
+    top_by_time = [np.cumsum(alphas[t]) for t in range(T)]
+    for t in range(T):
         x = t * (W + PW)
-        for i in range(len(topic_props[t])):
-            prop = topic_props[t][i]
-            y = top_by_time[t][i] - prop
-            color = colors[i]
+        for k in range(K):
+            prop = alphas[t][k]
+            y = top_by_time[t][k] - prop
+            color = colors[k]
             r = mpatches.Rectangle(xy=(x, y*H), width=W, height=prop*H, edgecolor='k', facecolor=color)
             ax.add_patch(r)
 
             if t != 0:
-                left_y = top_by_time[t-1][i] - topic_props[t-1][i]/2
+                left_y = top_by_time[t-1][k] - alphas[t-1][k]/2
                 right_y = y + prop/2
                 ax.arrow(x - PW, left_y*H, dx=PW*3/4, dy=(right_y - left_y)*H, head_length=PW/4, head_width=.1)
-    plt.show()
+
+    return plt
 
 
-def plot_topics(topics, topic_ixs, times):
-    W = .5
-    H = 1
-    PW = .1
-    PH = .1
+def plot_topics(
+        phis,
+        int2word,
+        time_names=None,
+        times=None,
+        topics=None,
+        ntop=10,
+        W=2.2,
+        H=.8,
+        PW=.2,
+        PH=.1,
+        arrows=True,
+        colors=None,
+        max_word_length=20,
+        filename=None
+):
+    """
+    Given matrix phi (T, K, V) of log-probabilities of words for each topic at each time,
+    plot the top n most likely words in each topic, with time leading from left to right
+    """
+
+    T, K, V = phis.shape
+    if times is None:
+        times = range(T)
+    if topics is None:
+        topics = range(K)
+
     TOTAL_W = len(times) * (W + PW)
-    TOTAL_H = len(topic_ixs) * (H + PH)
+    TOTAL_H = len(topics) * (H + PH)
     FONTSIZE = 5
+
     plt.figure(figsize=(TOTAL_W, TOTAL_H))
     plt.tight_layout()
     plt.xlim(0, TOTAL_W)
     plt.ylim(0, TOTAL_H)
     plt.axis('off')
     ax = plt.gca()
-    for t in times:
-        x = t * (W + PW)
-        for i, top in enumerate(topic_ixs):
+
+    for i, k in enumerate(reversed(topics)):
+        y = (i + .5) * (H + PH)
+        plt.text(-.2, y, str(k+1), ha='center', fontsize=FONTSIZE+3)
+
+    topn_time_topic = np.argsort(phis)[:, :, ::-1][:, :, :ntop]
+    for j, t in enumerate(times):
+        print('t =', t)
+        print(len(times))
+        x = j * (W + PW)
+        print(j)
+        if time_names is not None:
+            plt.text(x + W/2, TOTAL_H+.01, time_names[t], ha='center', va='bottom', fontsize=FONTSIZE+3)
+
+        for i, k in enumerate(reversed(topics)):
+            # print('k =', k)
             y = i * (H + PH)
 
             # draw rectangle
-            r = mpatches.Rectangle(xy=(x, y), width=W, height=H, edgecolor='k', facecolor='none')
+            col = colors[t][k] if colors is not None else 'k'
+            r = mpatches.Rectangle(xy=(x, y), width=W, height=H+.02, edgecolor=col, facecolor='none', linewidth=2)
             ax.add_patch(r)
 
             # draw arrow
-            if not t == len(times) - 1:
+            if j != len(times) - 1 and arrows:
                 ax.arrow(x + W, y + H/2, dx=PW*3/4, dy=0, head_width=.1, head_length=PW*1/4)
 
             # draw words
-            for j, w in enumerate(topics[t, top]):
-                plt.text(x + W/2, y + H - j * H/n_top, w, ha='center', va='top', fontsize=FONTSIZE)
+            for m, w in enumerate(topn_time_topic[t, k]):
+                word = int2word[w]
+                word = word if len(word) < max_word_length else word[:max_word_length - 3] + '...'
+                plt.text(x + W / 2, y + H - m * H / ntop, word, ha='center', va='top', fontsize=FONTSIZE)
 
-    plt.show()
+    if filename is not None:
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
+    return plt
 
 
-# plot_proportions(topic_props, range(4))
-
-topic_ixs = range(10)
-times = range(10)
-plot_topics(topics, topic_ixs, times)

@@ -1,0 +1,13 @@
+topic1 all about Catalonia
+topic2 not very strong, some weight in Paris
+topic3 all about sevilla - evidentally One Direction came in October 3 - ferrilasevilla14 in May
+topic4 all about canary islands
+topic5 mostly spanish terms, very dominant in nonth of Spain throughout
+topic 6 all portugal
+topic7 - Municipales2014 France - less dominant in Paris, can see that throughout
+topic8 - big in all of France until the very end (kiled by the voice?) - in touch with media (james900k refers to an artist, flappybird, the voice, le mag is french tv show)
+topic9 not too popular, except in Spain in March 2014 - vota am was 2014 election in May
+topic 10 is madrid
+
+LDA
+topic4 in March shows same as topic7 from DTM but hard to get context - only topic 8 in Feb

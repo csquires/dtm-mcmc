@@ -9,3 +9,8 @@ data/
 fetch_data/
 results/
 modify_db/
+figs/
+vids/
+trash/
+run_dtm/run_blei.py
+run_dtm/run_lda.py
