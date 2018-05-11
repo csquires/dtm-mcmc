@@ -98,7 +98,7 @@ def create_topics_matrix(
 
     for i, k in enumerate(topics):
         for j, t in enumerate(times):
-            ax = axes[i][j]
+            ax = axes[i][j] if len(topics) > 1 else axes[j]
             if i == len(topics) - 1 and time_names is not None:
                 ax.set_xlabel(time_names[t])
             if j == 0:
@@ -115,7 +115,7 @@ def create_topics_matrix(
         hspace=.05,
         left=.08,
         right=.96,
-        bottom=.10,
+        bottom=.15,
         top=.90
     )
 

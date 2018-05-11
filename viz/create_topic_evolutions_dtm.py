@@ -38,19 +38,19 @@ json.dump(colors, open('viz/dtm_colors.json', 'w'), indent=2)
 # times = [6, 7, 8, 9]
 # topics = [6, 7]
 
-times = [0, 1, 2, 3]
-topics = [0, 2, 9]
+times = [6, 7, 8, 9]
+topics = [3]
 plt = viz_topics.plot_topics(
     phis,
     int2word,
     times=times,
     topics=topics,
     time_names=time_names,
-    ntop=8,
+    ntop=20,
     W=1.5,
-    H=1,
+    H=4,
     colors=colors,
-    filename='figs/topic_evolutions_dtm_f2.png'
+    filename='figs/topic_evolutions_dtm_f3.png'
 )
 
 

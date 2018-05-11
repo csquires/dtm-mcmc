@@ -33,14 +33,14 @@ titles = [
 ]
 colors = json.load(open('viz/dtm_colors.json'))
 
-times = [0, 1, 2, 3]
-topics = [0, 2, 9]
+times = [6, 7, 8, 9]
+topics = [3]
 plt = viz_map_dynamics.create_topics_matrix(
     etas,
     sites2ixs,
     time_names=titles,
     topics=topics,
     times=times,
-    filename='figs/topic_matrices_dtm_f2.png',
+    filename='figs/topic_matrices_dtm_f3.png',
     colors=colors
 )
